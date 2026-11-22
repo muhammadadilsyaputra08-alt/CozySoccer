@@ -487,20 +487,26 @@ class Match {
 
   /* ---------- aturan ---------- */
   checkRules() {
-    const b = this.ball; if (b.owner) return;
-    // gawang
-    const lx = F.L, rx = F.R;
+    const b = this.ball, o = b.owner;
+    // tiang gawang: bola lepas memantul dari tiang (tidak bisa masuk dari samping)
+    if (!o) for (const gx of [F.L, F.R]) for (const py of [F.GY0, F.GY1]) {
+      const dx = b.x - gx, dy = b.y - py, d = Math.hypot(dx, dy), PR = 9;
+      if (d < PR && d > 0.01 && b.z < F.ZBAR) {
+        const nx = dx / d, ny = dy / d, vn = b.vx * nx + b.vy * ny;
+        if (vn < 0) { b.vx -= 1.6 * vn * nx; b.vy -= 1.6 * vn * ny; if (b.speed() > 60) { W.vfxSpawn(this.fx, 'Ball_Impact', b.x, b.y - 4); this.sfx('SFX_Ball_Bounce', 0.8); if (b.shot) this.msg('Tiang gawang!', G.C.gold, 1.2); } b.shot = false; b.pass = null; }
+        b.x = gx + nx * PR; b.y = py + ny * PR;
+      }
+    }
+    // gawang: harus masuk dari depan (bukan menyusur garis)
     for (const side of [-1, 1]) {
-      const gx = side < 0 ? lx : rx;
+      const gx = side < 0 ? F.L : F.R;
       const crossed = side < 0 ? b.x < gx : b.x > gx;
       if (!crossed) continue;
-      const inMouth = b.y > F.GY0 + 2 && b.y < F.GY1 - 2;
-      const nearPost = (Math.abs(b.y - F.GY0) < 6 || Math.abs(b.y - F.GY1) < 6);
-      if (b.z < F.ZBAR && nearPost && b.speed() > 50 && !b.hitPost) { b.hitPost = 1; b.vx *= -0.55; b.vy *= 0.6; b.x = gx + (side < 0 ? 2 : -2); W.vfxSpawn(this.fx, 'Ball_Impact', b.x, b.y - 4); this.sfx('SFX_Ball_Bounce', 0.8); this.msg('Tiang gawang!', G.C.gold, 1.2); b.shot = false; return; }
-      if (inMouth && b.z < F.ZBAR) { this.goal(side); return; }
-      if (b.z >= F.ZBAR && inMouth && Math.abs(b.x - gx) > 4) { /* lewat mistar */ }
+      const inMouth = b.y > F.GY0 + 4 && b.y < F.GY1 - 4;
+      if (o && o.gk) continue;
+      if (inMouth && b.z < F.ZBAR && (o || Math.abs(b.vx) > 0.2 * b.speed())) { this.goal(side); return; }
     }
-    if (Math.abs(b.x - F.L) > 3 && Math.abs(b.x - F.R) > 3) b.hitPost = 0;
+    if (o && o.gk) return;
     // keluar
     let out = null;
     if (b.y < F.T - 2 || b.y > F.B + 2) out = { t: 'throw', x: G.clamp(b.x, F.L + 8, F.R - 8), y: b.y < F.T ? F.T - 4 : F.B + 4 };

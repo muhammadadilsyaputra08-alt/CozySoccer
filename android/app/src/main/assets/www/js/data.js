@@ -58,7 +58,7 @@ function add(p) {
   { id: 'RW', name: 'Satria', num: 7, pos: 'RW', job: 'Right Winger', maxlv: 15, base: DP + 'RW/Player_RW', bonus: [4, 0, 1, 2, 0, -2] },
   { id: 'ST', name: 'Bagas', num: 9, pos: 'ST', job: 'Striker', maxlv: 15, base: DP + 'ST/Player_ST', bonus: [0, 4, 0, 1, 0, 2] },
   { id: 'LW', name: 'Tio', num: 11, pos: 'LW', job: 'Left Winger', maxlv: 12, base: DP + 'LW/Player_LW', bonus: [3, 2, 0, 5, 0, -3] }
-].forEach(p => { p.def = true; p.away = p.id === 'GK' ? GP + 'Player_GK_opp.png' : p.base + '_away.png'; add(p); });
+].forEach(p => { p.def = true; p.away = p.id === 'GK' ? GP + 'Player_GK_opp.png' : GP + 'Opp_' + p.id + '.png'; add(p); });
 
 /* rekrutan: 3 dari paket aset + 7 varian (recolor) */
 function rec(id, name, title, rarity, pos, job, num, maxlv, startLv, passive, price, base, stats, bonus) {

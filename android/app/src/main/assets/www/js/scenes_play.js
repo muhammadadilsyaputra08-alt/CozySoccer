@@ -88,7 +88,7 @@ S.match = {
     this.p = p; this.ctl = new Controls();
     const sd = G.save.data;
     this.m = new W.Match({ home: p.home, away: p.away, half: sd.settings.half, knockout: !!p.knockout, userTeam: 0, diff: p.diff || 1 });
-    this.paused = false; this.subSel = null; this.sub = false; this.quitAsk = false; this.ended = false; this.endT = 0; this.shoot = null; this.stadium = p.stadium || 'Environment/Stadium/Stadium_Day.png';
+    this.paused = false; this.subSel = null; this.sub = false; this.quitAsk = false; this.ended = false; this.endT = 0; this.pushing = false; this.penBusy = false; this.t0 = undefined; this.shoot = null; this.stadium = p.stadium || 'Environment/Stadium/Stadium_Day.png';
     G.audio.music('BGM_Match'); this.m.msg('Kick off!', G.C.cream, 1.6);
   },
   exit() { G.audio.stop(); },

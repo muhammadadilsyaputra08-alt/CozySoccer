@@ -61,8 +61,24 @@ for name, src, hs, ss, hd, sd in GEN:
         recolor(base + suf + '.png', 'Characters/Generated/Player_%s%s.png' % (name, suf), m)
 
 # GK lawan: seragam olive -> biru-sage
-gk = {hexrgb('#817b1a'): hexrgb('#4a8aa5'), hexrgb('#5f521a'): hexrgb('#2d5a73')}
+gk = {hexrgb('#817b1a'): hexrgb('#b06ac4'), hexrgb('#5f521a'): hexrgb('#6a3a82')}
 recolor('Characters/Default_Players/GK/Player_GK.png', 'Characters/Generated/Player_GK_opp.png', gk)
+
+
+# seragam lawan: pixel yang berbeda antara home & away (= kostum) diganti biru-putih; rambut/kulit tetap
+KIT = {hexrgb('#ac4427'): hexrgb('#2d5a73'), hexrgb('#c64e2c'): hexrgb('#4a8aa5'), hexrgb('#b8993d'): hexrgb('#d8e6ee'), hexrgb('#ebda8d'): hexrgb('#ffffff')}
+OUT = {'RB': 'RB/Player_RB', 'CB1': 'CB/Player_CB_01', 'CB2': 'CB/Player_CB_02', 'LB': 'LB/Player_LB', 'CDM': 'CDM/Player_CDM', 'CM': 'CM/Player_CM',
+       'CAM': 'CAM/Player_CAM', 'RW': 'RW/Player_RW', 'ST': 'ST/Player_ST', 'LW': 'LW/Player_LW'}
+for pid, rel in OUT.items():
+    h = Image.open(os.path.join(A, 'Characters/Default_Players/%s.png' % rel)).convert('RGBA')
+    w = Image.open(os.path.join(A, 'Characters/Default_Players/%s_away.png' % rel)).convert('RGBA')
+    hp, wp = h.load(), w.load()
+    for y in range(h.height):
+        for x in range(h.width):
+            p, q = hp[x, y], wp[x, y]
+            if p[3] and q[3] and p[:3] != q[:3] and p[:3] in KIT:
+                hp[x, y] = KIT[p[:3]] + (p[3],)
+    h.save(os.path.join(A, 'Characters/Generated/Opp_%s.png' % pid))
 
 # manifest
 files = []
