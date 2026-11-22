@@ -1,0 +1,13 @@
+{
+ "loop": {
+  "BGM_Main_Menu": true,
+  "BGM_Training": true,
+  "BGM_Match": true,
+  "BGM_Tournament": true,
+  "BGM_Victory": false,
+  "BGM_Defeat": false,
+  "BGM_Shop": true
+ },
+ "sr": 22050,
+ "note": "Audio sintetis chiptune = placeholder produksi; ganti dengan audio final bila perlu."
+}
