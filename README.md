@@ -16,3 +16,6 @@ Training (6 latihan, rank S/A/B/C + XP), Tournament (Beginner 4 tim, Cozy League
 
 ## CI (GitHub Actions)
 `.github/workflows/android.yml` membangun APK debug otomatis pada push, pull request, atau manual (Actions > Android Build > Run workflow). APK ada di Artifacts (`CozyPixelSoccer-debug-apk`). Push tag `v*` (mis. `v0.1.0`) juga membuat GitHub Release berisi APK.
+
+## Kontrol & kamera
+Lapangan 2x lebih luas dengan kamera mengikuti pembawa bola dan radar mini di kiri atas. Tombol berlabel: TEMBAK (tahan = tembakan jauh), UMPAN (tahan = umpan jauh), TEROBOS, SPRINT; tanpa bola: TEKEL dan GANTI. Keyboard: J umpan (tahan = jauh), K tembak/tekel, L terobos, Shift sprint.

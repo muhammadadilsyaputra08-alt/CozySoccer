@@ -1,6 +1,6 @@
 'use strict';
 /* Cozy Pixel Soccer - training, tournament, result */
-const Cc = G.C, UIx = G.UI, Fz = W.F;
+const Cc = G.C, UIx = G.UI, Fz = W.F1;
 
 /* ---------- RESULT ---------- */
 S.result = {

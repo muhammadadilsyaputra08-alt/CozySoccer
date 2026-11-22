@@ -1,11 +1,11 @@
 'use strict';
 /* Cozy Pixel Soccer - match scene, controls, penalty, result */
 const S = window.S = {};
-const F2 = W.F;
+const F2 = W.F1;
 
 /* ---------- Kontrol sentuh + keyboard ---------- */
 class Controls {
-  constructor() { this.joy = null; this.held = {}; this.edge = {}; this.chargeT = 0; this.charging = false; this.rel = false; this.pauseReq = false; }
+  constructor() { this.joy = null; this.held = {}; this.edge = {}; this.chargeT = 0; this.charging = false; this.rel = false; this.pauseReq = false; this.bCh = false; this.bT = 0; }
   lay() {
     const W_ = G.LW, H = G.LH;
     return { A: [W_ - 50, H - 62], B: [W_ - 124, H - 40], C: [W_ - 124, H - 110], D: [W_ - 50, H - 136] };
@@ -21,7 +21,7 @@ class Controls {
     if (this.joy && this.joy.id === o.id) this.joy = null;
     for (const k in this.held) if (this.held[k] === o.id) { delete this.held[k]; if (k === 'A') this.rel = true; }
   }
-  reset() { this.joy = null; this.held = {}; this.edge = {}; this.charging = false; this.chargeT = 0; this.rel = false; }
+  reset() { this.joy = null; this.held = {}; this.edge = {}; this.charging = false; this.chargeT = 0; this.rel = false; this.bCh = false; this.bT = 0; }
   read(hasBall, dt) {
     const K = G.keys, KH = G.keyHit; let mx = 0, my = 0;
     if (this.joy) { mx = (this.joy.x - this.joy.cx) / 34; my = (this.joy.y - this.joy.cy) / 34; const m = Math.hypot(mx, my); if (m > 1) { mx /= m; my /= m; } }
@@ -32,8 +32,11 @@ class Controls {
     if (hasBall) {
       if (aPress) { this.charging = true; this.chargeT = 0; }
       if (this.charging) { this.chargeT += dt; if (!aHeld) { this.charging = false; inp.shootRel = true; inp.power = G.clamp(0.5 + this.chargeT / 0.6 * 0.5, 0.5, 1); } else if (this.chargeT > 0.8) { this.charging = false; inp.shootRel = true; inp.power = 1; this.held.A = null; delete this.held.A; } }
-      if (bPress) inp.pass = true; if (cPress) inp.through = true;
-    } else { this.charging = false; if (aPress) inp.tackle = true; if (bPress) inp.sw = true; }
+      const bHeld = !!this.held.B || !!K.KeyJ;
+      if (bPress) { this.bCh = true; this.bT = 0; }
+      if (this.bCh) { this.bT += dt; if (!bHeld) { this.bCh = false; if (this.bT > 0.3) inp.longPass = true; else inp.pass = true; } }
+      if (cPress) inp.through = true;
+    } else { this.charging = false; this.bCh = false; if (aPress) inp.tackle = true; if (bPress) inp.sw = true; }
     if (KH.Escape || KH.KeyP) this.pauseReq = true;
     this.edge = {}; this.rel = false; return inp;
   }
@@ -49,7 +52,10 @@ class Controls {
     g.globalAlpha = 0.92;
     btn('A', hasBall ? 'shoot' : 'tackle'); btn('B', hasBall ? 'pass' : 'switch'); if (hasBall) btn('C', 'through'); btn('D', 'sprint');
     g.globalAlpha = 1;
-    if (this.charging) { const f = G.clamp(this.chargeT / 0.6, 0, 1); g.fillStyle = G.C.maroon; g.fillRect(L.A[0] - 24, L.A[1] - 42, 48, 6); g.fillStyle = f > 0.9 ? G.C.rust : G.C.gold; g.fillRect(L.A[0] - 23, L.A[1] - 41, 46 * f, 4); }
+    const lab = (k, t) => G.text(t, L[k][0], L[k][1] + 19, { a: 'c', s: 1 });
+    lab('A', hasBall ? 'TEMBAK' : 'TEKEL'); lab('B', hasBall ? 'UMPAN' : 'GANTI'); if (hasBall) lab('C', 'TEROBOS'); lab('D', 'SPRINT');
+    if (hasBall && this.bCh && this.bT > 0.3) G.text('UMPAN JAUH!', L.B[0], L.B[1] - 40, { a: 'c', s: 1, c: G.C.gold });
+    if (this.charging) { const f = G.clamp(this.chargeT / 0.6, 0, 1); if (f > 0.9) G.text('TEMBAKAN JAUH!', L.A[0], L.A[1] - 70, { a: 'c', s: 1, c: G.C.rust }); g.fillStyle = G.C.maroon; g.fillRect(L.A[0] - 24, L.A[1] - 42, 48, 6); g.fillStyle = f > 0.9 ? G.C.rust : G.C.gold; g.fillRect(L.A[0] - 23, L.A[1] - 41, 46 * f, 4); }
   }
 }
 S.Controls = Controls;
@@ -133,8 +139,20 @@ S.match = {
     G.draw('UI/Gameplay_HUD/btn_pause.png', G.LW - 30, 6);
     // stamina
     if (m.ctrl) { G.draw(G.$(D.iconPath({ base: m.ctrl.d.srcId ? D.PLAYERS[m.ctrl.d.srcId].base : m.ctrl.d.base })), 8, 6, 28, 28); G.text(m.ctrl.d.name, 40, 6, {}); G.draw('UI/Gameplay_HUD/stamina_bar_bg.png', 40, 20); const f = m.ctrl.stamina / 100; if (f > 0) G.g.drawImage(G.$('UI/Gameplay_HUD/stamina_bar_fill.png'), 0, 0, Math.max(1, Math.round(32 * f)), 8, 40, 20, Math.max(1, Math.round(32 * f)), 8); }
+    this.radar(g, m);
     if (!this.paused && m.phase !== 'full') this.ctl.draw(m.ball.owner === m.ctrl);
+    if (this.t0 === undefined) this.t0 = G.time;
+    if (!this.paused && G.time - this.t0 < 7 && m.phase !== 'full') { G.panel('dark', G.LW / 2 - 170, G.LH - 42, 340, 32); G.text('Kanan: TEMBAK, UMPAN (tahan = jauh), TEROBOS, SPRINT', G.LW / 2, G.LH - 36, { a: 'c', s: 1 }); G.text('Tanpa bola: TEKEL dan GANTI pemain', G.LW / 2, G.LH - 24, { a: 'c', s: 1, c: G.C.gold }); }
     if (this.paused) this.drawPause(g);
+  },
+  radar(g, m) {
+    const x = 8, y = 40, w = 104, h = 62, sx = w / W.F.WW, sy = h / W.F.WH;
+    g.globalAlpha = 0.75; g.fillStyle = '#3d5a2c'; g.fillRect(x, y, w, h); g.globalAlpha = 1;
+    g.strokeStyle = '#e8e2c0'; g.lineWidth = 1; g.strokeRect(x + W.F.L * sx + 0.5, y + W.F.T * sy + 0.5, (W.F.R - W.F.L) * sx, (W.F.B - W.F.T) * sy);
+    g.beginPath(); g.moveTo(x + W.F.CX * sx + 0.5, y + W.F.T * sy); g.lineTo(x + W.F.CX * sx + 0.5, y + W.F.B * sy); g.stroke();
+    m.all.forEach(p => { g.fillStyle = p === m.ctrl ? '#ffbc30' : p.team === 0 ? '#e0583a' : '#4a8aa5'; g.fillRect(Math.round(x + p.x * sx) - 1, Math.round(y + p.y * sy) - 1, p === m.ctrl ? 4 : 3, p === m.ctrl ? 4 : 3); });
+    g.fillStyle = '#fff'; g.fillRect(Math.round(x + m.ball.x * sx) - 1, Math.round(y + m.ball.y * sy) - 1, 3, 3);
+    if (m.camR) { g.strokeStyle = 'rgba(255,255,255,0.6)'; g.strokeRect(x + m.camR.x * sx + 0.5, y + m.camR.y * sy + 0.5, G.LW * sx, G.LH * sy); }
   },
   drawPause(g) {
     const m = this.m; g.fillStyle = 'rgba(28,10,14,0.7)'; g.fillRect(0, 0, G.LW, G.LH);

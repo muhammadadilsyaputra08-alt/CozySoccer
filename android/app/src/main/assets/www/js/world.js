@@ -1,7 +1,9 @@
 'use strict';
 /* Cozy Pixel Soccer - match engine */
 const W = window.W = {};
-const F = W.F = { L: 65, R: 575, T: 65, B: 320, CX: 320, CY: 192, GY0: 155, GY1: 230, BOXW: 65, BY0: 121, BY1: 264, ZBAR: 26 };
+W.F1 = { L: 65, R: 575, T: 65, B: 320, CX: 320, CY: 192, GY0: 155, GY1: 230, BOXW: 65, BY0: 121, BY1: 264, ZBAR: 26 };
+/* lapangan 2x (gambar stadion diskalakan 2x; sprite tetap 1x) */
+const F = W.F = { L: 130, R: 1150, T: 130, B: 640, CX: 640, CY: 384, GY0: 310, GY1: 460, BOXW: 130, BY0: 242, BY1: 528, ZBAR: 38, WW: 1280, WH: 768 };
 const DT = 1 / 60;
 const norm = (x, y) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -70,7 +72,7 @@ class Pl {
   s(k) { const v = this.d.stats[k]; return (v === undefined ? 50 : v) * this.compat + (this.m.captainBonus(this)) + this.ts; }
   has(p) { return this.passive === p; }
   speedMax() {
-    let sp = this.gk ? 52 + this.s('Positioning') * 0.3 : 44 + this.s('Pace') * 0.62;
+    let sp = (this.gk ? 52 + this.s('Positioning') * 0.3 : 44 + this.s('Pace') * 0.62) * 1.5;
     const sm = this.has('Speed Demon') ? 1.46 : 1.32;
     if (this.sprint && this.stamina > 2) sp *= sm;
     if (this.m.ball.owner === this) sp *= (0.9 + this.s('Dribbling') * 0.0012 + (this.has('Quick Feet') ? 0.07 : 0)) * (this.gk ? 1 : 1);
@@ -95,8 +97,15 @@ class Match {
       const slots = D.FORMATIONS[this.teams[t].form].slots;
       this.teams[t].players.forEach((d, i) => { const p = new Pl(this, t, d, i, slots[i]); this.pl[t].push(p); this.all.push(p); });
     }
-    this.placeKickoff(0);
+    this.cam = { x: 0, y: 0 }; this.placeKickoff(0); this.updateCam(1, true);
     if (this.userTeam >= 0) this.ctrl = this.pl[this.userTeam][9] || this.pl[this.userTeam][8];
+  }
+  updateCam(dt, snap) {
+    const b = this.ball, o = b.owner, vw = G.LW, vh = G.LH; let tx, ty;
+    if (o) { tx = o.x + o.fx * 60; ty = o.y + o.fy * 36; } else { tx = b.x + b.vx * 0.35; ty = b.y + b.vy * 0.35; }
+    if (this.phase === 'kickoff') { tx = F.CX; ty = F.CY; }
+    const cx = G.clamp(tx - vw / 2, 0, F.WW - vw), cy = G.clamp(ty - vh / 2, 0, F.WH - vh);
+    const k = snap ? 1 : Math.min(1, dt * 3.5); this.cam.x += (cx - this.cam.x) * k; this.cam.y += (cy - this.cam.y) * k;
   }
   captainBonus(p) { const t = this.teams[p.team]; return (t.mine && !p.captain && t.players.some(q => q.captain)) ? 1.5 : 0; }
   atkDir(team) { return team === 0 ? 1 : -1; }
@@ -133,7 +142,7 @@ class Match {
     }
   }
   step(dt, inp) {
-    this.tm += dt;
+    this.tm += dt; this.updateCam(dt);
     if (this.banner) { this.banner.t -= dt; if (this.banner.t <= 0) this.banner = null; }
     const b = this.ball;
     this.all.forEach(p => { p.at += dt; if (p.cd > 0) p.cd -= dt; if (p.tcd > 0) p.tcd -= dt; if (p.recvT > 0) p.recvT -= dt; });
@@ -192,7 +201,7 @@ class Match {
     else if (this.autoSwitchT <= 0 && !(b.owner && b.owner.team === ut)) {
       this.autoSwitchT = 0.3;
       const cand = this.pl[ut].filter(p => !p.gk && p.state !== 'fall').sort((a, b2) => dist(a, b) - dist(b2, b))[0];
-      if (cand && cand !== c && dist(cand, b) < dist(c, b) - 22 && (c.state === 'move')) this.ctrl = c = cand;
+      if (cand && cand !== c && dist(cand, b) < dist(c, b) - 40 && (c.state === 'move')) this.ctrl = c = cand;
     }
     if (inp.sw) this.switchPlayer(inp);
     c = this.ctrl;
@@ -205,6 +214,7 @@ class Match {
     if (has) {
       if (inp.pass) this.userPass(c, inp, false);
       else if (inp.through) this.userPass(c, inp, true);
+      else if (inp.longPass) this.userPass(c, inp, false, true);
       else if (inp.shootRel) this.userShoot(c, inp);
     } else if (inp.tackle || inp.shootRel) {
       const [fx, fy] = mag > 0.3 ? norm(mx, my) : [c.fx, c.fy];
@@ -217,7 +227,7 @@ class Match {
     const mx = inp.mx || 0, my = inp.my || 0;
     if (Math.hypot(mx, my) > 0.4) {
       const [ux, uy] = norm(mx, my);
-      cand = cand.map(p => { const rx = p.x - c.x, ry = p.y - c.y, d = Math.hypot(rx, ry) || 1; return { p, s: (rx * ux + ry * uy) / d * 100 - d * 0.2 }; }).filter(o => o.s > 20).sort((a, b2) => b2.s - a.s).map(o => o.p);
+      cand = cand.map(p => { const rx = p.x - c.x, ry = p.y - c.y, d = Math.hypot(rx, ry) || 1; return { p, s: (rx * ux + ry * uy) / d * 100 - d * 0.1 }; }).filter(o => o.s > 20).sort((a, b2) => b2.s - a.s).map(o => o.p);
       if (cand.length) { this.ctrl = cand[0]; return; }
       cand = this.pl[ut].filter(p => !p.gk && p !== c);
     }
@@ -250,37 +260,37 @@ class Match {
     let ang = Math.atan2(dy, dx);
     let err = (100 - p.s('Passing')) * 0.0013 + 0.012; if (p.has('Playmaker')) err *= 0.55; if (p.has('Eagle Eye') && d > 150) err *= 0.5;
     if (p.gk) err = (100 - p.s('Distribution')) * 0.0013 + 0.015;
-    err *= (0.6 + d / 280);
+    err *= (0.6 + d / 520);
     ang += G.rnd(-1, 1) * err * 1.7;
-    let sp = o.through ? 195 + d * 0.55 : 150 + d * 0.95; sp = G.clamp(sp, 150, 290); sp += p.s('Passing') * 0.35; if (p.has('Eagle Eye') && d > 150) sp *= 1.08;
-    const vz = (o.lob ? 120 : 0);
+    let sp = o.through ? 230 + d * 0.5 : 170 + d * 0.55; sp = G.clamp(sp, 200, 430); sp += p.s('Passing') * 0.35; if (p.has('Eagle Eye') && d > 150) sp *= 1.08;
+    const lob = o.lob || (d > 340 && !o.through); const vz = lob ? (d > 400 ? 190 : 150) : 0;
     this.stat[p.team].passes++; p.stat.passes++;
     this.kickBall(p, Math.cos(ang) * sp, Math.sin(ang) * sp, vz, { recv: target || null, pass: { from: p, team: p.team, target } });
     if (target) { if (p.team === this.userTeam) this.ctrl = target; if (o.through) target.runTo = { x: tx, y: ty, t: 1.6 }; }
   }
-  userPass(c, inp, through) {
+  userPass(c, inp, through, long) {
     const mx = inp.mx || 0, my = inp.my || 0, mag = Math.hypot(mx, my);
     const [ux, uy] = mag > 0.3 ? norm(mx, my) : [c.fx, c.fy];
     const mates = this.pl[c.team].filter(p => p !== c && !p.gk || (p.gk && p !== c && c.x * this.atkDir(c.team) < 0));
     let best = null, bs = -999; const ad = this.atkDir(c.team);
     mates.forEach(p => {
-      const rx = p.x - c.x, ry = p.y - c.y, d = Math.hypot(rx, ry); if (d < 24 || d > 340) return;
+      const rx = p.x - c.x, ry = p.y - c.y, d = Math.hypot(rx, ry); if (d < 24 || d > (long ? 700 : 520)) return;
       const cos = (rx * ux + ry * uy) / d; if (cos < (through ? 0.35 : 0.55)) return;
-      let s = cos * 100 - d * (through ? 0.1 : 0.22);
+      let s = long ? cos * 100 + d * 0.12 : cos * 100 - d * (through ? 0.06 : 0.14);
       if (through) s += (p.x - c.x) * ad * 0.25;
-      if (this.laneBlocked(c, p)) s -= 25;
+      if (!long && this.laneBlocked(c, p)) s -= 25;
       if (s > bs) { bs = s; best = p; }
     });
     if (best) {
       if (through) {
-        const lead = 38 + Math.hypot(best.vx, best.vy) * 0.45; let tx = best.x + ad * lead + best.vx * 0.5, ty = best.y + best.vy * 0.5;
+        const lead = 60 + Math.hypot(best.vx, best.vy) * 0.6; let tx = best.x + ad * lead + best.vx * 0.5, ty = best.y + best.vy * 0.5;
         tx = G.clamp(tx, F.L + 8, F.R - 8); ty = G.clamp(ty, F.T + 8, F.B - 8);
         this.doPass(c, tx, ty, best, { through: true });
       } else {
-        const t = dist(c, best) / 210; this.doPass(c, best.x + best.vx * t * 0.6, best.y + best.vy * t * 0.6, best, {});
+        const t = dist(c, best) / 300; this.doPass(c, best.x + best.vx * t * 0.6, best.y + best.vy * t * 0.6, best, { lob: !!long });
       }
     } else {
-      const d = through ? 130 : 95; this.doPass(c, c.x + ux * d, c.y + uy * d, null, { through });
+      const d = long ? 400 : through ? 200 : 150; this.doPass(c, G.clamp(c.x + ux * d, F.L, F.R), G.clamp(c.y + uy * d, F.T, F.B), null, { through, lob: !!long });
     }
   }
   laneBlocked(a, t) {
@@ -298,19 +308,19 @@ class Match {
     let dirx = ux === null || ux === undefined ? p.fx : ux, diry = ux === null || ux === undefined ? p.fy : uy; [dirx, diry] = norm(dirx, diry);
     const toG = norm(gx - p.x, F.CY - p.y), cos = dirx * toG[0] + diry * toG[1];
     let tx, ty;
-    if (cos > 0.5 && (gx - p.x) * ad > 20) { tx = gx; ty = F.CY + (G.clamp(diry * 1.4 + (uy ? 0 : 0), -1, 1)) * 32; if (Math.abs(diry) < 0.15 || ux === null) ty = F.CY + G.rnd(-24, 24); }
+    if (cos > 0.5 && (gx - p.x) * ad > 20) { tx = gx; ty = F.CY + (G.clamp(diry * 1.4 + (uy ? 0 : 0), -1, 1)) * 62; if (Math.abs(diry) < 0.15 || ux === null) ty = F.CY + G.rnd(-45, 45); }
     else { tx = p.x + dirx * 200; ty = p.y + diry * 200; }
     const d = Math.hypot(tx - p.x, ty - p.y) || 1; let ang = Math.atan2(ty - p.y, tx - p.x);
     const inBox = Math.abs(p.x - gx) < F.BOXW && p.y > F.BY0 && p.y < F.BY1;
     let err = (100 - p.s('Shooting')) * 0.0016 + 0.018;
     if (p.has('Sniper') && !inBox) err *= 0.55; if (p.has('Predator') && inBox) err *= 0.6;
-    err *= (0.65 + 0.55 * power) * (0.7 + d / 450);
+    err *= (0.65 + 0.55 * power) * (0.7 + d / 900);
     ang += G.rnd(-1, 1) * err * 1.8;
-    let sp = (200 + p.s('Shooting') * 1.25) * (0.72 + 0.34 * power); if (p.has('Predator') && inBox) sp *= 1.07;
+    let sp = (200 + p.s('Shooting') * 1.25) * (0.72 + 0.34 * power) * 1.4; if (p.has('Predator') && inBox) sp *= 1.07;
     let vz = power > 0.85 ? G.rnd(40, 110) : G.rnd(0, 40);
     if (power > 0.95 && Math.random() < (100 - p.s('Shooting')) * 0.004) vz = G.rnd(150, 220);
     this.stat[p.team].shots++; p.stat.shots++;
-    const onT = Math.abs(Math.atan2(F.CY - p.y, gx - p.x) - ang) < 0.25 && Math.abs(p.x - gx) < 330; if (onT) { this.stat[p.team].sot++; p.stat.sot++; }
+    const onT = Math.abs(Math.atan2(F.CY - p.y, gx - p.x) - ang) < 0.25 && Math.abs(p.x - gx) < 620; if (onT) { this.stat[p.team].sot++; p.stat.sot++; }
     this.kickBall(p, Math.cos(ang) * sp, Math.sin(ang) * sp, vz, { shot: true });
     this.shotBy = p; this.shotT = 0;
   }
@@ -383,7 +393,7 @@ class Match {
       p.stamina = G.clamp(p.stamina, 0, 100);
     }
     p.x += p.vx * dt; p.y += p.vy * dt;
-    p.x = G.clamp(p.x, F.L - 28, F.R + 28); p.y = G.clamp(p.y, F.T - 6, F.B + 8);
+    p.x = G.clamp(p.x, F.L - 60, F.R + 60); p.y = G.clamp(p.y, F.T - 8, F.B + 10);
     const sp = Math.hypot(p.vx, p.vy);
     if (sp > 14 && p.state !== 'tackle' && p.state !== 'dive') { const [nx, ny] = norm(p.vx, p.vy); p.fx += (nx - p.fx) * Math.min(1, dt * 14); p.fy += (ny - p.fy) * Math.min(1, dt * 14); const l = Math.hypot(p.fx, p.fy) || 1; p.fx /= l; p.fy /= l; }
     if (p.sprint && sp > 80 && Math.random() < 0.05) W.vfxSpawn(this.fx, 'Sprint_Dust', p.x - p.fx * 6, p.y);
@@ -431,20 +441,20 @@ class Match {
       if (b.z <= 0) { b.z = 0; if (b.vz < -45) { b.vz = -b.vz * 0.5; b.vx *= 0.85; b.vy *= 0.85; if (!inNet) this.sfx('SFX_Ball_Bounce', 0.35); } else b.vz = 0; }
     } else { const f = Math.pow(0.5, dt); b.vx *= f; b.vy *= f; if (Math.hypot(b.vx, b.vy) < 4) { b.vx = b.vy = 0; } }
     b.rot += dt * b.speed() * 0.25;
-    if (inNet) { const gx = this.goalSide > 0 ? F.R : F.L; const inx = this.goalSide > 0 ? gx + 18 : gx - 18; if ((this.goalSide > 0 && b.x > inx) || (this.goalSide < 0 && b.x < inx)) { b.x = inx; b.vx *= -0.2; } b.vx *= 0.97; b.y = G.clamp(b.y, F.GY0 + 4, F.GY1 - 4); }
+    if (inNet) { const gx = this.goalSide > 0 ? F.R : F.L; const inx = this.goalSide > 0 ? gx + 36 : gx - 36; if ((this.goalSide > 0 && b.x > inx) || (this.goalSide < 0 && b.x < inx)) { b.x = inx; b.vx *= -0.2; } b.vx *= 0.97; b.y = G.clamp(b.y, F.GY0 + 4, F.GY1 - 4); }
   }
   pickup() {
     const b = this.ball; if (b.owner || this.phase !== 'play') return;
     const sp = b.speed(); let best = null, bd = 99;
     this.all.forEach(p => {
       if (p.cd > 0 || p.state === 'fall' || p.state === 'tackle' || b.z > (p.gk ? 32 : 12)) return;
-      let reach = p.gk ? (p.state === 'dive' ? 26 : 17) : 11.5; const d = dist(p, b);
+      let reach = p.gk ? (p.state === 'dive' ? 38 : 24) : 11.5; const d = dist(p, b);
       if (d < reach && d < bd) { bd = d; best = p; }
     });
     if (!best) { return; }
     const p = best;
-    if (p.gk && b.lastTeam !== p.team && (b.shot || sp > 150)) { b.shot = true; this.gkSave(p); return; }
-    const lim = (b.recv === p ? 420 : 200 + p.s('Passing') * 0.9 + (p.gk ? 80 : 0));
+    if (p.gk && b.lastTeam !== p.team && (b.shot || sp > 220)) { b.shot = true; this.gkSave(p); return; }
+    const lim = (b.recv === p ? 650 : 300 + p.s('Passing') * 1.1 + (p.gk ? 120 : 0));
     if (sp > lim && b.lastPl !== p && b.kickT > 0.15) {
       // blok / deflect
       b.vx *= -0.35 + G.rnd(-0.2, 0.2); b.vy = b.vy * 0.5 + G.rnd(-70, 70); p.cd = 0.3; b.recv = null; b.pass = null; b.lastTeam = p.team; b.lastPl = p; b.shot = false; this.sfx('SFX_Ball_Bounce', 0.5);
@@ -458,18 +468,18 @@ class Match {
     const b = this.ball; if (!b.shot || b.owner) return;
     for (const p of this.all) {
       if (!p.gk || p.team === b.lastTeam) continue;
-      const reach = p.state === 'dive' ? 28 : 18; if (dist(p, b) < reach && b.z < 34) { this.gkSave(p); return; }
+      const reach = p.state === 'dive' ? 40 : 26; if (dist(p, b) < reach && b.z < 34) { this.gkSave(p); return; }
     }
   }
   gkSave(p) {
     const b = this.ball, sp = b.speed(); if (!b.shot && sp < 60) { this.give(p); return; }
-    let pc = 0.5 + p.s('Handling') * 0.0065 - sp * 0.0011 + (p.state === 'dive' ? -0.08 : 0.05) + (p.has('Last Hope') && Math.abs(p.x - b.lastPl.x) < 130 ? 0.1 : 0);
+    let pc = 0.5 + p.s('Handling') * 0.0065 - sp * 0.0007 + (p.state === 'dive' ? -0.08 : 0.05) + (p.has('Last Hope') && Math.abs(p.x - b.lastPl.x) < 130 ? 0.1 : 0);
     pc = G.clamp(pc, 0.12, 0.88); p.stat.saves++; this.stat[p.team].saves++;
     W.vfxSpawn(this.fx, 'Save_Impact', b.x, b.y - 4); this.sfx('SFX_Ball_Bounce', 0.7);
     const sh = b.lastPl; if (sh && sh.team !== p.team) { /* sot sudah dihitung */ }
     if (Math.random() < pc) { this.give(p); p.holdT = 0; this.msg('Penyelamatan!', G.C.cream, 1.1); }
     else { // tepis
-      const ad = this.atkDir(p.team); b.shot = false; b.owner = null; b.vx = ad * G.rnd(60, 120); b.vy = (b.y > p.y ? 1 : -1) * G.rnd(50, 130); b.vz = G.rnd(20, 90); b.recv = null; p.cd = 0.5; b.lastTeam = p.team; b.lastPl = p; b.pass = null;
+      const ad = this.atkDir(p.team); b.shot = false; b.owner = null; b.vx = ad * G.rnd(90, 180); b.vy = (b.y > p.y ? 1 : -1) * G.rnd(80, 200); b.vz = G.rnd(20, 90); b.recv = null; p.cd = 0.5; b.lastTeam = p.team; b.lastPl = p; b.pass = null;
       this.msg('Ditepis!', G.C.cream, 1);
     }
     if (p.state === 'dive') { p.stT = Math.min(p.stT, 0.25); }
@@ -485,7 +495,7 @@ class Match {
       const crossed = side < 0 ? b.x < gx : b.x > gx;
       if (!crossed) continue;
       const inMouth = b.y > F.GY0 + 2 && b.y < F.GY1 - 2;
-      const nearPost = (Math.abs(b.y - F.GY0) < 3.5 || Math.abs(b.y - F.GY1) < 3.5);
+      const nearPost = (Math.abs(b.y - F.GY0) < 6 || Math.abs(b.y - F.GY1) < 6);
       if (b.z < F.ZBAR && nearPost && b.speed() > 50 && !b.hitPost) { b.hitPost = 1; b.vx *= -0.55; b.vy *= 0.6; b.x = gx + (side < 0 ? 2 : -2); W.vfxSpawn(this.fx, 'Ball_Impact', b.x, b.y - 4); this.sfx('SFX_Ball_Bounce', 0.8); this.msg('Tiang gawang!', G.C.gold, 1.2); b.shot = false; return; }
       if (inMouth && b.z < F.ZBAR) { this.goal(side); return; }
       if (b.z >= F.ZBAR && inMouth && Math.abs(b.x - gx) > 4) { /* lewat mistar */ }
@@ -504,7 +514,7 @@ class Match {
       this.sfx('SFX_Whistle', 0.4);
       if (out.t === 'throw') { const team = 1 - (b.lastTeam < 0 ? 0 : b.lastTeam); this.msg('Lemparan ke dalam', G.C.cream, 1.2); this.setRestart('throw', team, out.x, out.y + (out.y < F.CY ? 6 : -6)); }
       else if (out.t === 'corner') { this.msg('Tendangan sudut', G.C.cream, 1.4); this.setRestart('corner', out.team, out.x, out.y); }
-      else { this.msg('Tendangan gawang', G.C.cream, 1.2); const gx = out.team === 0 ? F.L + 22 : F.R - 22; this.setRestart('goalkick', out.team, gx, F.CY + G.rnd(-18, 18)); }
+      else { this.msg('Tendangan gawang', G.C.cream, 1.2); const gx = out.team === 0 ? F.L + 44 : F.R - 44; this.setRestart('goalkick', out.team, gx, F.CY + G.rnd(-36, 36)); }
     }
   }
   goal(side) {
@@ -517,7 +527,7 @@ class Match {
     this.goalSide = side; this.netT = 0; this.phase = 'goal'; this.phT = 3.2; b.shot = false; b.owner = null; b.vx *= 0.35; b.vy *= 0.35;
     this.sfx('SFX_Goal'); this.sfx('SFX_Crowd_Cheer', 0.9); G.vibrate(60);
     this.msg('GOOOL! ' + (scorer ? scorer.d.name : ''), G.C.gold, 3);
-    W.vfxSpawn(this.fx, 'Goal_Explosion', side < 0 ? F.L - 6 : F.R + 6, F.CY);
+    W.vfxSpawn(this.fx, 'Goal_Explosion', side < 0 ? F.L - 12 : F.R + 12, F.CY, { s: 2 });
     this.all.forEach(p => { if (p.team === scoringTeam && !p.gk) { p.state = 'move'; } });
     if (scorer && !own) { scorer.state = 'celebrate'; scorer.stT = 3; scorer.animKind = 'cel'; W.vfxSpawn(this.fx, 'Goal_Celebration_Particles', scorer.x, scorer.y - 20, { fps: 10 }); }
     this.lastScoringTeam = scoringTeam;
@@ -553,7 +563,7 @@ class Match {
     });
     this.all.forEach(p => { this.moveStep(p, dt); this.animate(p, dt); });
     // lawan tak boleh dekat bola
-    this.pl[1 - r.team].forEach(p => { const d = dist(p, b); if (d < 46 && d > 0.1) { p.x += (p.x - b.x) / d * (46 - d) * 0.2; p.y += (p.y - b.y) / d * (46 - d) * 0.2; } });
+    this.pl[1 - r.team].forEach(p => { const d = dist(p, b); if (d < 60 && d > 0.1) { p.x += (p.x - b.x) / d * (60 - d) * 0.2; p.y += (p.y - b.y) / d * (60 - d) * 0.2; } });
     this.ball.x = r.x; this.ball.y = r.type === 'throw' ? (r.y < F.CY ? F.T - 3 : F.B + 3) : r.y;
     if (this.phT <= 0) {
       if (!r.started) { r.started = true; this.give(r.taker); this.restartHold = 0; }
@@ -588,7 +598,7 @@ class Match {
     const r = this.penReq; this.penReq = null; if (!r) return;
     const team = r.team, b = this.ball;
     if (goal) { r.shooter.stat.goals++; this.score[team]++; this.stat[team].shots++; this.stat[team].sot++; this.goals.push({ team, name: r.shooter.d.name, min: this.minute() + 1, pen: true, pl: r.shooter }); this.lastScoringTeam = team; this.goalSide = team === 0 ? 1 : -1; this.phase = 'goal'; this.phT = 2.6; this.netT = 0; this.msg('GOOOL! ' + r.shooter.d.name, G.C.gold, 2.6); this.sfx('SFX_Goal'); this.sfx('SFX_Crowd_Cheer', 0.9); b.reset(this.goalSide > 0 ? F.R + 10 : F.L - 10, F.CY); this.celeb = null; }
-    else { this.stat[team].shots++; this.stat[team].sot++; const def = 1 - team; this.stat[def].saves++; this.msg('Penalti gagal!', G.C.cream, 1.6); this.setRestart('goalkick', def, def === 0 ? F.L + 22 : F.R - 22, F.CY); }
+    else { this.stat[team].shots++; this.stat[team].sot++; const def = 1 - team; this.stat[def].saves++; this.msg('Penalti gagal!', G.C.cream, 1.6); this.setRestart('goalkick', def, def === 0 ? F.L + 44 : F.R - 44, F.CY); }
   }
 
   /* ---------- AI ---------- */
@@ -610,13 +620,13 @@ class Match {
       const rk = ranked.indexOf(p);
       const lim = this.restartAuto ? 1 : 2;
       if (rk >= 0 && rk < lim && this.gkSafe(p, b)) {
-        const t = Math.min(0.5, dist(p, b) / 140); tx = b.x + b.vx * t; ty = b.y + b.vy * t; spr = dist(p, b) > 40;
+        const t = Math.min(0.6, dist(p, b) / 240); tx = b.x + b.vx * t; ty = b.y + b.vy * t; spr = dist(p, b) > 40;
         if (b.recv && b.recv.team !== p.team && b.recv !== p && dist(b.recv, b) < dist(p, b) - 12) { tx = hx; ty = hy; spr = false; }
       } else { [tx, ty] = this.shapeTarget(p, false); }
     } else if (owner.team !== p.team) {
       // bertahan
       const ranked = mates.filter(q => !q.gk && q.state !== 'fall').sort((a, c) => dist(a, owner) - dist(c, owner));
-      const rk = ranked.indexOf(p); const press = (rk === 0) || (rk === 1 && dist(p, owner) < 90 + skill * 40);
+      const rk = ranked.indexOf(p); const press = (rk === 0) || (rk === 1 && dist(p, owner) < 150 + skill * 60);
       if (owner.gk) { const dd = dist(p, owner); const [sx, sy] = this.shapeTarget(p, false); tx = sx; ty = sy; if (dd < 70) { tx = p.x + (p.x - owner.x) / (dd || 1) * 30; ty = p.y + (p.y - owner.y) / (dd || 1) * 30; } }
       else if (press && !(this.restart && this.restart.protect)) {
         const own = this.goalX(p.team), gdx = own - owner.x, gdy = F.CY - owner.y, gl = Math.hypot(gdx, gdy) || 1;
@@ -642,10 +652,10 @@ class Match {
   shapeTarget(p, attacking, marking) {
     const b = this.ball, ad = this.atkDir(p.team), grp = D.GROUP[p.slotPos]; let [hx, hy] = this.homePos(p);
     const wx = attacking ? { DEF: 0.28, MID: 0.42, ATT: 0.55 }[grp] : { DEF: 0.38, MID: 0.45, ATT: 0.32 }[grp];
-    let x = hx + (b.x - hx) * wx + (attacking ? ad * { DEF: 26, MID: 48, ATT: 70 }[grp] : 0);
+    let x = hx + (b.x - hx) * wx + (attacking ? ad * { DEF: 45, MID: 80, ATT: 120 }[grp] : 0);
     let y = hy + (b.y - hy) * (attacking ? 0.22 : 0.3);
     if (marking) {
-      const opps = this.pl[1 - p.team].filter(o => !o.gk); let near = null, nd = 70;
+      const opps = this.pl[1 - p.team].filter(o => !o.gk); let near = null, nd = 110;
       opps.forEach(o => { const d = Math.hypot(o.x - hx, o.y - hy); if (d < nd) { nd = d; near = o; } });
       if (near) { const own = this.goalX(p.team); x = x * 0.4 + (near.x + (own - near.x) * 0.15) * 0.6; y = y * 0.4 + near.y * 0.6; }
     }
@@ -654,7 +664,7 @@ class Match {
       this.pl[p.team].forEach(q => { if (q !== p && !q.gk) { const d = Math.hypot(q.x - x, q.y - y); if (d < 38 && d > 0.1) { x += (x - q.x) / d * (38 - d) * 0.6; y += (y - q.y) / d * (38 - d) * 0.6; } } });
     }
     // jangan melewati garis tengah terlalu jauh saat bertahan (pemain bertahan)
-    if (!attacking && grp === 'DEF') { const lim = F.CX + ad * 30; x = ad > 0 ? Math.min(x, lim) : Math.max(x, lim); }
+    if (!attacking && grp === 'DEF') { const lim = F.CX + ad * 70; x = ad > 0 ? Math.min(x, lim) : Math.max(x, lim); }
     return [G.clamp(x, F.L + 8, F.R - 8), G.clamp(y, F.T + 8, F.B - 8)];
   }
   carrierAI(p, dt) {
@@ -671,18 +681,18 @@ class Match {
     const userHolding = p === this.ctrl;
     if (p.aiT <= 0 && (!userHolding)) {
       p.aiT = 0.16 + Math.random() * 0.1;
-      const inZone = Math.abs(gx - p.x) < 200 && Math.abs(p.y - F.CY) < 115 && (gx - p.x) * ad > 10;
+      const inZone = Math.abs(gx - p.x) < 360 && Math.abs(p.y - F.CY) < 210 && (gx - p.x) * ad > 10;
       const pressure = nearest < 30;
-      let shootP = 0; if (inZone) shootP = dGoal < 110 ? 0.38 : dGoal < 160 ? 0.16 : 0.06; if (pressure) shootP *= 1.5; shootP *= (0.6 + skill * 0.6);
+      let shootP = 0; if (inZone) shootP = dGoal < 200 ? 0.38 : dGoal < 290 ? 0.16 : 0.06; if (pressure) shootP *= 1.5; shootP *= (0.6 + skill * 0.6);
       if (p.holdT > 0.35 && inZone && Math.random() < shootP * 0.7 && !this.shotBlocked(p, gx)) { this.shoot(p, G.rnd(0.6, 1), null, null); return; }
       // umpan
       const opt = this.bestPass(p);
-      const advanced = opt && ((opt.t.x - p.x) * ad > 28);
+      const advanced = opt && ((opt.t.x - p.x) * ad > 50);
       let passP = 0; if (pressure) passP = 0.55; if (p.holdT > 1.4) passP = Math.max(passP, 0.5); if (nearest < 18) passP = 0.9; if (advanced && opt.s > 50 && p.holdT > 0.5) passP = Math.max(passP, 0.2);
       if (p.holdT < 0.25) passP = 0;
       if (opt && Math.random() < passP && opt.s > -15) {
         const t = opt.t, tt = dist(p, t) / 210;
-        if (advanced && (t.x - p.x) * ad > 60 && Math.random() < 0.35) { const lead = 38; this.doPass(p, G.clamp(t.x + ad * lead, F.L + 8, F.R - 8), t.y, t, { through: true }); }
+        if (advanced && (t.x - p.x) * ad > 110 && Math.random() < 0.35) { const lead = 60; this.doPass(p, G.clamp(t.x + ad * lead, F.L + 8, F.R - 8), t.y, t, { through: true }); }
         else this.doPass(p, t.x + t.vx * tt * 0.6, t.y + t.vy * tt * 0.6, t, {});
         return;
       }
@@ -695,9 +705,9 @@ class Match {
   bestPass(p) {
     const ad = this.atkDir(p.team); let best = null, bs = -999; const opps = this.pl[1 - p.team];
     this.pl[p.team].forEach(t => {
-      if (t === p || (t.gk && p.x * ad > 0 && false)) return; if (t.gk && (p.x - this.goalX(p.team)) * ad > 150) return;
-      const d = dist(p, t); if (d < 35 || d > 280) return;
-      let s = (t.x - p.x) * ad * 0.9 - d * 0.12;
+      if (t === p || (t.gk && p.x * ad > 0 && false)) return; if (t.gk && (p.x - this.goalX(p.team)) * ad > 260) return;
+      const d = dist(p, t); if (d < 50 || d > 520) return;
+      let s = (t.x - p.x) * ad * 0.9 - d * 0.08;
       let open = 60; opps.forEach(o => { const dd = dist(o, t); if (dd < open) open = dd; }); s += open * 0.6;
       if (this.laneBlocked(p, t)) s -= 40; const grp = D.GROUP[t.slotPos]; if (grp === 'ATT') s += 6;
       if (t.gk) s -= 30;
@@ -712,7 +722,7 @@ class Match {
       p.dx = p.dy = 0; p.holdT += dt;
       if (p.holdT > 1.0 && p !== this.ctrl) {
         const opt = this.bestPass(p);
-        if (opt) { this.doPass(p, opt.t.x, opt.t.y, opt.t, { lob: dist(p, opt.t) > 170 }); }
+        if (opt) { this.doPass(p, opt.t.x, opt.t.y, opt.t, { lob: dist(p, opt.t) > 300 }); }
         else this.doPass(p, p.x + ad * 150, p.y + G.rnd(-60, 60), null, {});
       }
       return;
@@ -720,27 +730,27 @@ class Match {
     // ancaman tembakan
     const owner = b.owner;
     let threat = null;
-    if (!owner && b.shot && b.lastTeam !== p.team && b.vx * (-ad) > 40) {
-      const t = (gline - b.x) / b.vx; if (t > 0 && t < 1.6) { const yy = b.y + b.vy * t * 0.85; if (yy > F.GY0 - 22 && yy < F.GY1 + 22) threat = { y: yy, t }; }
+    if (!owner && b.shot && b.lastTeam !== p.team && b.vx * (-ad) > 60) {
+      const t = (gline - b.x) / b.vx; if (t > 0 && t < 2.4) { const yy = b.y + b.vy * t * 0.85; if (yy > F.GY0 - 40 && yy < F.GY1 + 40) threat = { y: yy, t }; }
     }
     if (threat && p.gkDelay < 0 && p.state === 'move') {
       const reflex = p.s('Reflex') + (p.has('Last Hope') && b.lastPl && Math.abs(b.lastPl.x - p.x) < 130 ? 12 : 0);
-      p.gkDelay = Math.max(0.03, 0.2 - reflex * 0.0016) * (p.team === this.userTeam ? 1 : (1.2 - (this.teams[p.team].skill || 0.5) * 0.4)); p.gkY = threat.y; p.gkSp = 150 + p.s('Diving') * 1.55 + reflex * 0.4; p.gkT = threat.t;
+      p.gkDelay = Math.max(0.03, 0.2 - reflex * 0.0016) * (p.team === this.userTeam ? 1 : (1.2 - (this.teams[p.team].skill || 0.5) * 0.4)); p.gkY = threat.y; p.gkSp = (150 + p.s('Diving') * 1.55 + reflex * 0.4) * 1.6; p.gkT = threat.t;
     }
     if (p.gkDelay >= 0) {
       p.gkDelay -= dt;
       if (p.gkDelay <= 0) {
         const dy = p.gkY - p.y;
-        if (Math.abs(dy) > 14) { p.state = 'dive'; p.stT = 0.75; p.diveDir = dy < 0 ? -1 : 1; p.diveT = 0; p.animKind = 'dive'; p.at = 0; this.sfx('SFX_Tackle', 0.25); }
+        if (Math.abs(dy) > 24) { p.state = 'dive'; p.stT = 0.75; p.diveDir = dy < 0 ? -1 : 1; p.diveT = 0; p.animKind = 'dive'; p.at = 0; this.sfx('SFX_Tackle', 0.25); }
         p.gkDelay = -1; p.gkMove = 0.4;
       }
     }
     if (p.state !== 'dive') {
       if (p.gkMove > 0 && threat) { p.gkMove -= dt; p.dx = 0; p.dy = G.clamp((p.gkY - p.y) / 6, -1, 1); p.sprint = true; return; }
       // posisi: busur antara bola dan gawang
-      const ballD = Math.hypot(b.x - gline, b.y - F.CY) || 1, out = G.clamp(ballD * 0.1, 6, 34);
+      const ballD = Math.hypot(b.x - gline, b.y - F.CY) || 1, out = G.clamp(ballD * 0.1, 10, 64);
       const vx = (b.x - gline) / ballD, vy = (b.y - F.CY) / ballD;
-      let tx = gline + vx * out * 0.9 * 1 + ad * 8, ty = G.clamp(F.CY + vy * out * 1.6 + (b.y - F.CY) * 0.12, F.GY0 + 4, F.GY1 - 4);
+      let tx = gline + vx * out * 0.9 * 1 + ad * 8, ty = G.clamp(F.CY + vy * out * 1.6 + (b.y - F.CY) * 0.08, F.GY0 + 4, F.GY1 - 4);
       // bola lepas & lambat di kotak: keluar ambil
       const inBox = Math.abs(b.x - gline) < F.BOXW && b.y > F.BY0 && b.y < F.BY1;
       if (!owner && inBox && b.speed() < 110 && !b.shot) {
@@ -754,7 +764,7 @@ class Match {
   gkDiveMove(p, dt) {
     p.diveT += dt; const sp = p.gkSp || 220;
     const dy = p.gkY - p.y; const move = Math.sign(dy) * Math.min(Math.abs(dy), sp * dt * (p.diveT < 0.35 ? 1 : 0.2));
-    p.y += move; p.vy = move / dt; p.vx = 0; p.x = G.clamp(p.x, this.goalX(p.team) - 6, this.goalX(p.team) + 50);
+    p.y += move; p.vy = move / dt; p.vx = 0; p.x = G.clamp(p.x, this.goalX(p.team) - 6, this.goalX(p.team) + 90);
   }
 }
 W.Match = Match; W.Ball = Ball; W.Pl = Pl;
@@ -789,12 +799,13 @@ Match.prototype.playStep = function (dt, inp) {
 
 /* ---------- gambar ---------- */
 Match.prototype.draw = function (g, dt, stadium) {
-  W.drawStadium(g, stadium);
-  g.save(); g.translate(G.wx, 0);
+  const vw = G.LW, vh = G.LH, cx = G.clamp(Math.round(this.cam.x / 2) * 2, 0, F.WW - vw), cy = G.clamp(Math.round(this.cam.y / 2) * 2, 0, F.WH - vh);
+  g.drawImage(G.$(stadium || 'Environment/Stadium/Stadium_Day.png'), cx / 2, cy / 2, vw / 2, vh / 2, 0, 0, vw, vh);
+  g.save(); g.translate(-cx, -cy); this.camR = { x: cx, y: cy };
   // jaring gawang saat gol
   if (this.phase === 'goal' || this.netT > 0 && this.phase === 'goal') {
     const side = this.goalSide, im = G.$(side > 0 ? 'Environment/Goals/Goal_Right_NetAnim_4f.png' : 'Environment/Goals/Goal_Left_NetAnim_4f.png');
-    const fr = Math.min(3, Math.floor(this.netT * 8)); g.drawImage(im, fr * 30, 0, 30, 86, side > 0 ? F.R - 3 : F.L - 27, 149, 30, 86);
+    const fr = Math.min(3, Math.floor(this.netT * 8)); g.drawImage(im, fr * 30, 0, 30, 86, side > 0 ? F.R - 6 : F.L - 54, F.CY - 86, 60, 172);
   }
   const list = this.all.slice().sort((a, b) => a.y - b.y); const b = this.ball;
   // bayangan
